@@ -54,13 +54,13 @@ def load_tf_weights_in_gpt2(model, gpt2_checkpoint_path):
             "https://www.tensorflow.org/install/ for installation instructions.")
         raise
     tf_path = os.path.abspath(gpt2_checkpoint_path)
-    print("Converting TensorFlow checkpoint from {}".format(tf_path))
+    print(f"Converting TensorFlow checkpoint from {tf_path}")
     # Load weights from TF model
     init_vars = tf.train.list_variables(tf_path)
     names = []
     arrays = []
     for name, shape in init_vars:
-        print("Loading TF weight {} with shape {}".format(name, shape))
+        print(f"Loading TF weight {name} with shape {shape}")
         array = tf.train.load_variable(tf_path, name)
         names.append(name)
         arrays.append(array.squeeze())
@@ -74,11 +74,11 @@ def load_tf_weights_in_gpt2(model, gpt2_checkpoint_path):
                 l = re.split(r'(\d+)', m_name)
             else:
                 l = [m_name]
-            if l[0] == 'w' or l[0] == 'g':
+            if l[0] in ['w', 'g']:
                 pointer = getattr(pointer, 'weight')
             elif l[0] == 'b':
                 pointer = getattr(pointer, 'bias')
-            elif l[0] == 'wpe' or l[0] == 'wte':
+            elif l[0] in ['wpe', 'wte']:
                 pointer = getattr(pointer, l[0])
                 pointer = getattr(pointer, 'weight')
             else:
@@ -91,7 +91,7 @@ def load_tf_weights_in_gpt2(model, gpt2_checkpoint_path):
         except AssertionError as e:
             e.args += (pointer.shape, array.shape)
             raise
-        print("Initialize PyTorch weight {}".format(name))
+        print(f"Initialize PyTorch weight {name}")
         pointer.data = torch.from_numpy(array)
     return model
 
@@ -170,8 +170,7 @@ class GPT2Config(object):
 
     def to_dict(self):
         """Serializes this instance to a Python dictionary."""
-        output = copy.deepcopy(self.__dict__)
-        return output
+        return copy.deepcopy(self.__dict__)
 
     def to_json_string(self):
         """Serializes this instance to a JSON string."""
@@ -231,10 +230,7 @@ class Attention(nn.Module):
     def split_heads(self, x, k=False):
         new_x_shape = x.size()[:-1] + (self.n_head, x.size(-1) // self.n_head)
         x = x.view(*new_x_shape)  # in Tensorflow implem: fct split_states
-        if k:
-            return x.permute(0, 2, 3, 1)  # (batch, head, head_features, seq_length)
-        else:
-            return x.permute(0, 2, 1, 3)  # (batch, head, seq_length, head_features)
+        return x.permute(0, 2, 3, 1) if k else x.permute(0, 2, 1, 3)
 
     def forward(self, x, layer_past=None):
         x = self.c_attn(x)
@@ -263,8 +259,7 @@ class MLP(nn.Module):
 
     def forward(self, x):
         h = self.act(self.c_fc(x))
-        h2 = self.c_proj(h)
-        return h2
+        return self.c_proj(h)
 
 
 class Block(nn.Module):
@@ -298,10 +293,7 @@ class GPT2LMHead(nn.Module):
         self.decoder.weight = model_embeddings_weights  # Tied weights
 
     def forward(self, hidden_state):
-        # Truncated Language modeling logits (we remove the last token)
-        # h_trunc = h[:, :-1].contiguous().view(-1, self.n_embd)
-        lm_logits = self.decoder(hidden_state)
-        return lm_logits
+        return self.decoder(hidden_state)
 
 
 class GPT2MultipleChoiceHead(nn.Module):
@@ -322,10 +314,8 @@ class GPT2MultipleChoiceHead(nn.Module):
         mc_token_ids = mc_token_ids.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, -1, hidden_states.size(-1))
         # (bsz, num_choices, 1, hidden_size)
         multiple_choice_h = hidden_states.gather(2, mc_token_ids).squeeze(2)
-        # (bsz, num_choices, hidden_size)
-        multiple_choice_logits = self.linear(multiple_choice_h).squeeze(-1)
         # (bsz, num_choices)
-        return multiple_choice_logits
+        return self.linear(multiple_choice_h).squeeze(-1)
 
 
 class GPT2PreTrainedModel(nn.Module):
@@ -337,12 +327,9 @@ class GPT2PreTrainedModel(nn.Module):
         super(GPT2PreTrainedModel, self).__init__()
         if not isinstance(config, GPT2Config):
             raise ValueError(
-                "Parameter config in `{}(config)` should be an instance of class `GPT2Config`. "
-                "To create a model from a pretrained model use "
-                "`model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`".format(
-                    self.__class__.__name__, self.__class__.__name__
-                )
+                f"Parameter config in `{self.__class__.__name__}(config)` should be an instance of class `GPT2Config`. To create a model from a pretrained model use `model = {self.__class__.__name__}.from_pretrained(PRETRAINED_MODEL_NAME)`"
             )
+
         self.config = config
 
     def set_tied(self):
@@ -625,9 +612,10 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
 
             # Flatten the tokens
             loss_fct = CrossEntropyLoss(ignore_index=-1)
-            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)),
-                            shift_labels.view(-1))
-            return loss
+            return loss_fct(
+                shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
+            )
+
         return lm_logits, presents
 
 
