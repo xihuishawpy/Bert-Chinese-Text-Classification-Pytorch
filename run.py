@@ -16,7 +16,7 @@ if __name__ == '__main__':
     dataset = 'THUCNews'  # 数据集
 
     model_name = args.model  # bert
-    x = import_module('models.' + model_name)
+    x = import_module(f'models.{model_name}')
     config = x.Config(dataset)
     np.random.seed(1)
     torch.manual_seed(1)

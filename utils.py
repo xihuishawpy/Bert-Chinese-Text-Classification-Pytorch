@@ -61,7 +61,7 @@ class DatasetIterater(object):
 
     def __next__(self):
         if self.residue and self.index == self.n_batches:
-            batches = self.batches[self.index * self.batch_size: len(self.batches)]
+            batches = self.batches[self.index * self.batch_size:]
             self.index += 1
             batches = self._to_tensor(batches)
             return batches
@@ -79,15 +79,11 @@ class DatasetIterater(object):
         return self
 
     def __len__(self):
-        if self.residue:
-            return self.n_batches + 1
-        else:
-            return self.n_batches
+        return self.n_batches + 1 if self.residue else self.n_batches
 
 
 def build_iterator(dataset, config):
-    iter = DatasetIterater(dataset, config.batch_size, config.device)
-    return iter
+    return DatasetIterater(dataset, config.batch_size, config.device)
 
 
 def get_time_dif(start_time):

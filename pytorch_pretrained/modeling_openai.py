@@ -49,10 +49,28 @@ def load_tf_weights_in_openai_gpt(model, openai_checkpoint_folder_path):
     import re
     import numpy as np
     print("Loading weights...")
-    names = json.load(open(openai_checkpoint_folder_path + '/parameters_names.json', "r", encoding='utf-8'))
-    shapes = json.load(open(openai_checkpoint_folder_path + '/params_shapes.json', "r", encoding='utf-8'))
+    names = json.load(
+        open(
+            f'{openai_checkpoint_folder_path}/parameters_names.json',
+            "r",
+            encoding='utf-8',
+        )
+    )
+
+    shapes = json.load(
+        open(
+            f'{openai_checkpoint_folder_path}/params_shapes.json',
+            "r",
+            encoding='utf-8',
+        )
+    )
+
     offsets = np.cumsum([np.prod(shape) for shape in shapes])
-    init_params = [np.load(openai_checkpoint_folder_path + '/params_{}.npy'.format(n)) for n in range(10)]
+    init_params = [
+        np.load(openai_checkpoint_folder_path + f'/params_{n}.npy')
+        for n in range(10)
+    ]
+
     init_params = np.split(np.concatenate(init_params, 0), offsets)[:-1]
     init_params = [param.reshape(shape) for param, shape in zip(init_params, shapes)]
 
@@ -87,12 +105,10 @@ def load_tf_weights_in_openai_gpt(model, openai_checkpoint_folder_path):
                 l = re.split(r'(\d+)', m_name)
             else:
                 l = [m_name]
-            if l[0] == 'g':
+            if l[0] == 'g' or l[0] != 'b' and l[0] == 'w':
                 pointer = getattr(pointer, 'weight')
             elif l[0] == 'b':
                 pointer = getattr(pointer, 'bias')
-            elif l[0] == 'w':
-                pointer = getattr(pointer, 'weight')
             else:
                 pointer = getattr(pointer, l[0])
             if len(l) >= 2:
@@ -108,7 +124,7 @@ def load_tf_weights_in_openai_gpt(model, openai_checkpoint_folder_path):
         except AssertionError as e:
             e.args += (pointer.shape, array.shape)
             raise
-        print("Initialize PyTorch weight {}".format(name))
+        print(f"Initialize PyTorch weight {name}")
         pointer.data = torch.from_numpy(array)
     return model
 
@@ -216,8 +232,7 @@ class OpenAIGPTConfig(object):
 
     def to_dict(self):
         """Serializes this instance to a Python dictionary."""
-        output = copy.deepcopy(self.__dict__)
-        return output
+        return copy.deepcopy(self.__dict__)
 
     def to_json_string(self):
         """Serializes this instance to a JSON string."""
@@ -243,12 +258,11 @@ class Conv1D(nn.Module):
             raise NotImplementedError
 
     def forward(self, x):
-        if self.rf == 1:
-            size_out = x.size()[:-1] + (self.nf,)
-            x = torch.addmm(self.bias, x.view(-1, x.size(-1)), self.weight)
-            x = x.view(*size_out)
-        else:
+        if self.rf != 1:
             raise NotImplementedError
+        size_out = x.size()[:-1] + (self.nf,)
+        x = torch.addmm(self.bias, x.view(-1, x.size(-1)), self.weight)
+        x = x.view(*size_out)
         return x
 
 
@@ -288,10 +302,7 @@ class Attention(nn.Module):
     def split_heads(self, x, k=False):
         new_x_shape = x.size()[:-1] + (self.n_head, x.size(-1) // self.n_head)
         x = x.view(*new_x_shape)  # in Tensorflow implem: fct split_states
-        if k:
-            return x.permute(0, 2, 3, 1)
-        else:
-            return x.permute(0, 2, 1, 3)
+        return x.permute(0, 2, 3, 1) if k else x.permute(0, 2, 1, 3)
 
     def forward(self, x):
         x = self.c_attn(x)
@@ -334,8 +345,7 @@ class Block(nn.Module):
         a = self.attn(x)
         n = self.ln_1(x + a)
         m = self.mlp(n)
-        h = self.ln_2(n + m)
-        return h
+        return self.ln_2(n + m)
 
 
 class OpenAIGPTLMHead(nn.Module):
@@ -352,10 +362,7 @@ class OpenAIGPTLMHead(nn.Module):
         self.decoder.weight = model_embeddings_weights  # Tied weights
 
     def forward(self, hidden_state):
-        # Truncated Language modeling logits (we remove the last token)
-        # h_trunc = h[:, :-1].contiguous().view(-1, self.n_embd)
-        lm_logits = self.decoder(hidden_state)
-        return lm_logits
+        return self.decoder(hidden_state)
 
 
 class OpenAIGPTMultipleChoiceHead(nn.Module):
@@ -380,9 +387,8 @@ class OpenAIGPTMultipleChoiceHead(nn.Module):
         multiple_choice_h = hidden_states.gather(2, mc_token_ids).squeeze(2)
         # (bsz, num_choices, hidden_size)
         multiple_choice_h = self.dropout(multiple_choice_h.transpose(1, 2)).transpose(1, 2)
-        multiple_choice_logits = self.linear(multiple_choice_h).squeeze(-1)
         # (bsz, num_choices)
-        return multiple_choice_logits
+        return self.linear(multiple_choice_h).squeeze(-1)
 
 
 class OpenAIGPTPreTrainedModel(nn.Module):
@@ -394,12 +400,9 @@ class OpenAIGPTPreTrainedModel(nn.Module):
         super(OpenAIGPTPreTrainedModel, self).__init__()
         if not isinstance(config, OpenAIGPTConfig):
             raise ValueError(
-                "Parameter config in `{}(config)` should be an instance of class `OpenAIGPTConfig`. "
-                "To create a model from a pretrained model use "
-                "`model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`".format(
-                    self.__class__.__name__, self.__class__.__name__
-                )
+                f"Parameter config in `{self.__class__.__name__}(config)` should be an instance of class `OpenAIGPTConfig`. To create a model from a pretrained model use `model = {self.__class__.__name__}.from_pretrained(PRETRAINED_MODEL_NAME)`"
             )
+
         self.config = config
 
     def init_weights(self, module):
@@ -723,9 +726,10 @@ class OpenAIGPTLMHeadModel(OpenAIGPTPreTrainedModel):
             shift_labels = lm_labels[..., 1:].contiguous()
             # Flatten the tokens
             loss_fct = CrossEntropyLoss(ignore_index=-1)
-            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)),
-                            shift_labels.view(-1))
-            return loss
+            return loss_fct(
+                shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
+            )
+
         return lm_logits
 
 

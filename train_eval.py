@@ -24,8 +24,6 @@ def init_network(model, method='xavier', exclude='embedding', seed=123):
                     nn.init.normal_(w)
             elif 'bias' in name:
                 nn.init.constant_(w, 0)
-            else:
-                pass
 
 
 def train(config, model, train_iter, dev_iter, test_iter):
@@ -34,8 +32,24 @@ def train(config, model, train_iter, dev_iter, test_iter):
     param_optimizer = list(model.named_parameters())
     no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
     optimizer_grouped_parameters = [
-        {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
-        {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}]
+        {
+            'params': [
+                p
+                for n, p in param_optimizer
+                if all(nd not in n for nd in no_decay)
+            ],
+            'weight_decay': 0.01,
+        },
+        {
+            'params': [
+                p
+                for n, p in param_optimizer
+                if any(nd in n for nd in no_decay)
+            ],
+            'weight_decay': 0.0,
+        },
+    ]
+
     # optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
     optimizer = BertAdam(optimizer_grouped_parameters,
                          lr=config.learning_rate,
@@ -47,8 +61,8 @@ def train(config, model, train_iter, dev_iter, test_iter):
     flag = False  # 记录是否很久没有效果提升
     model.train()
     for epoch in range(config.num_epochs):
-        print('Epoch [{}/{}]'.format(epoch + 1, config.num_epochs))
-        for i, (trains, labels) in enumerate(train_iter):
+        print(f'Epoch [{epoch + 1}/{config.num_epochs}]')
+        for trains, labels in train_iter:
             outputs = model(trains)
             model.zero_grad()
             loss = F.cross_entropy(outputs, labels)
